@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Winter 2022 — Neon Closet</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;background:#090a16;color:#f4f0ff;font-family:Arial,sans-serif}
+#scene{position:fixed;inset:0}
+canvas{display:block}
+.topbar{position:fixed;z-index:5;top:14px;left:16px;right:16px;display:flex;justify-content:space-between;pointer-events:none}
+.brand,.status{padding:11px 14px;border:1px solid #aaa1ff30;border-radius:12px;background:#0c0c1ddd}
+.brand strong{font-size:12px;letter-spacing:2px}
+.brand small{display:block;margin-top:4px;color:#9991c2;font-size:9px;letter-spacing:1px}
+.status{font-size:10px;color:#aaa3ff}
+.panel{position:fixed;z-index:6;top:90px;left:16px;width:210px;padding:15px;border:1px solid #a99bff35;border-radius:16px;background:#0c0c1df0;transition:.25s}
+.panel.collapsed{transform:translateX(-250px)}
+.panel h3{margin:0 0 7px;font-size:14px}
+.panel p{font-size:10px;color:#aaa3c8;line-height:1.6}
+.label{margin:14px 0 6px;color:#9890bd;font-size:9px;letter-spacing:1.5px}
+button{cursor:pointer}
+.panel button{width:100%;padding:10px;margin:3px 0;border:1px solid #ffffff12;border-radius:9px;background:#ffffff07;color:#e5dfff;text-align:left;font-size:10px}
+.panel button:hover,.panel button.active{background:#8060cb30;border-color:#9d86ff70}
+.dot{display:inline-block;width:6px;height:6px;margin-right:8px;border-radius:50%;background:#9974ff;box-shadow:0 0 8px #9974ff}
+#toggle{position:fixed;z-index:10;top:90px;left:16px;width:35px;height:40px;border:1px solid #a99bff55;border-radius:10px;background:#0c0c1df0;color:white;font-size:22px;transition:left .25s}
+#toggle.open{left:235px}
+.hint{position:fixed;right:15px;bottom:15px;padding:12px;border:1px solid #aaa1ff25;border-radius:11px;background:#0c0c1ddd;color:#aaa3c8;font-size:10px;line-height:1.8}
+.hint b{color:#e5dfff}
+@media(max-width:600px){.panel{left:9px;top:80px;width:175px;padding:10px}#toggle{left:9px;top:80px}#toggle.open{left:192px}.topbar{top:8px;left:8px;right:8px}.brand,.status{padding:8px}.hint{right:8px;bottom:8px;max-width:145px}}
+</style>
+<script type="importmap">
+{
+ "imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+ }
+}
+</script>
+</head>
+<body>
+<div id="scene"></div>
+
+<header class="topbar">
+ <div class="brand">
+  <strong>MY ROOM.exe</strong>
+  <small>WINTER 2022 · 23:47</small>
+ </div>
+ <div class="status">● NIGHT MODE</div>
+</header>
+
+<button id="toggle">‹</button>
+
+<aside class="panel">
+ <h3>Моя комната</h3>
+ <p>Игровая зона внизу и неоновая гардеробная на втором этаже.</p>
+
+ <div class="label">КАМЕРА</div>
+ <button class="active" data-view="room"><span class="dot"></span>Вся комната</button>
+ <button data-view="closet"><span class="dot"></span>Гардеробная · 2 этаж</button>
+ <button data-view="front"><span class="dot"></span>Вид спереди</button>
+
+ <div class="label">ОБСТАНОВКА</div>
+ <button id="wallsBtn"><span class="dot"></span>Скрыть стены</button>
+ <button id="neonBtn"><span class="dot"></span>Неон: ON</button>
+ <button id="nightBtn"><span class="dot"></span>Ночной режим</button>
+ <button id="resetBtn"><span class="dot"></span>Сбросить камеру</button>
+</aside>
+
+<div class="hint"><b>Управление</b><br>ЛКМ — вращение<br>Колесо — приближение<br>ПКМ — перемещение</div>
+
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color('#090a16');
+scene.fog=new THREE.Fog('#090a16',18,35);
+
+const camera=new THREE.PerspectiveCamera(38,innerWidth/innerHeight,.1,100);
+camera.position.set(12,10,13);
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1;
+document.querySelector('#scene').appendChild(renderer.domElement);
+
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.target.set(0,2,0);
+controls.enableDamping=true;
+controls.dampingFactor=.06;
+controls.minDistance=6;
+controls.maxDistance=24;
+controls.maxPolarAngle=Math.PI*.49;
+controls.mouseButtons={
+ LEFT:THREE.MOUSE.ROTATE,
+ MIDDLE:THREE.MOUSE.DOLLY,
+ RIGHT:THREE.MOUSE.PAN
+};
+
+const initialCamera=new THREE.Vector3(12,10,13);
+const initialTarget=new THREE.Vector3(0,2,0);
+
+function mat(color,rough=.8,emissive='#000000',power=0){
+ return new THREE.MeshStandardMaterial({
+  color,roughness:rough,emissive,emissiveIntensity:power
+ });
+}
+
+const M={
+ white:mat('#f2effb'),
+ wall:mat('#eeecf8'),
+ side:mat('#d9d6e9'),
+ floor:mat('#bdb5d5'),
+ wood:mat('#b9a5d0'),
+ woodLight:mat('#e1d7ec'),
+ violet:mat('#8051e8',.5,'#7040ff',.6),
+ deep:mat('#302640'),
+ blue:mat('#879cff',.5,'#526eff',.5),
+ pink:mat('#dca4d7',.6,'#a94cb9',.3),
+ grey:mat('#aaa7c0'),
+ fabric:mat('#b7a9d4'),
+ fabric2:mat('#d6cbe8'),
+ black:mat('#29283b'),
+ metal:mat('#8585a4',.35),
+ leaf:mat('#658d7c'),
+ glow:mat('#e6e0ff',.3,'#a38bff',.6)
+};
+
+const room=new THREE.Group();
+scene.add(room);
+
+const walls=new THREE.Group();
+room.add(walls);
+
+const neonGroup=new THREE.Group();
+room.add(neonGroup);
+
+function box(parent,x,y,z,sx,sy,sz,material,cast=true){
+ const mesh=new THREE.Mesh(
+  new THREE.BoxGeometry(sx,sy,sz),material
+ );
+ mesh.position.set(x,y,z);
+ mesh.castShadow=cast;
+ mesh.receiveShadow=true;
+ parent.add(mesh);
+ return mesh;
+}
+
+function ball(parent,x,y,z,sx,sy,sz,material){
+ const mesh=new THREE.Mesh(
+  new THREE.SphereGeometry(1,18,12),material
+ );
+ mesh.position.set(x,y,z);
+ mesh.scale.set(sx,sy,sz);
+ mesh.castShadow=true;
+ mesh.receiveShadow=true;
+ parent.add(mesh);
+ return mesh;
+}
+
+function cyl(parent,x,y,z,r1,r2,h,material,n=20){
+ const mesh=new THREE.Mesh(
+  new THREE.CylinderGeometry(r1,r2,h,n),material
+ );
+ mesh.position.set(x,y,z);
+ mesh.castShadow=true;
+ mesh.receiveShadow=true;
+ parent.add(mesh);
+ return mesh;
+}
+
+function group(parent,x=0,y=0,z=0){
+ const g=new THREE.Group();
+ g.position.set(x,y,z);
+ parent.add(g);
+ return g;
+}
+
+function strip(parent,x,y,z,sx,sy,sz,color){
+ const m=mat(color,.3,color,1);
+ const mesh=box(parent,x,y,z,sx,sy,sz,m,false);
+ neonGroup.add(mesh);
+ return mesh;
+}
+
+// ОСВЕЩЕНИЕ
+
+scene.add(new THREE.HemisphereLight('#9295df','#171126',.7));
+
+const mainLight=new THREE.DirectionalLight('#c8c8ff',.4);
+mainLight.position.set(-5,10,7);
+mainLight.castShadow=true;
+mainLight.shadow.mapSize.set(2048,2048);
+scene.add(mainLight);
+
+const purpleLight=new THREE.PointLight('#7040ff',30,15,2);
+purpleLight.position.set(0,2.5,-1);
+scene.add(purpleLight);
+
+const blueLight=new THREE.PointLight('#526eff',15,12,2);
+blueLight.position.set(3,2,-2);
+scene.add(blueLight);
+
+const pinkLight=new THREE.PointLight('#c36bff',8,9,2);
+pinkLight.position.set(-3,2,1);
+scene.add(pinkLight);
+
+// ПЕРВЫЙ ЭТАЖ: ПОЛ И СТЕНЫ
+
+box(room,0,-.13,0,10,.25,8,M.floor);
+
+const back=box(walls,0,2.6,-4,10,5.2,.15,M.wall);
+const front=box(walls,0,2.6,4,10,5.2,.15,M.wall);
+const left=box(walls,-5,2.6,0,.15,5.2,8,M.side);
+const right=box(walls,5,2.6,0,.15,5.2,8,M.side);
+
+box(walls,0,.12,-3.9,9.8,.18,.09,M.white);
+box(walls,-4.9,.12,0,.09,.18,7.8,M.white);
+box(walls,4.9,.12,0,.09,.18,7.8,M.white);
+
+strip(room,0,.04,-3.68,9.2,.035,.06,'#7140db');
+strip(room,-4.68,.04,0,.06,.035,7.1,'#526dff');
+strip(room,4.68,.04,0,.06,.035,7.1,'#7140db');
+strip(room,0,.04,3.68,9.2,.035,.06,'#7140db');
+
+// КРОВАТЬ
+
+const bed=group(room,-2.45,0,-1.4);
+
+box(bed,0,.35,0,2.55,.42,3.45,M.wood);
+box(bed,0,.61,0,2.43,.18,3.3,M.fabric2);
+box(bed,0,.73,.18,2.35,.12,2.75,M.white);
+box(bed,0,.83,.53,2.3,.08,1.95,M.fabric);
+box(bed,0,.88,1.2,2.34,.12,.65,M.fabric2);
+box(bed,0,.62,-1.62,2.55,1.1,.15,M.woodLight);
+
+for(const x of [-1.05,1.05]){
+ box(bed,x,.95,-.75,.82,.18,.62,M.white);
+ box(bed,x,.96,-.73,.7,.035,.5,M.fabric2);
+}
+
+box(bed,-.75,.93,.3,.56,.1,.58,M.pink);
+
+function star(parent,x,y,z,size,color){
+ const g=group(parent,x,y,z);
+ const m=mat(color);
+ ball(g,0,0,0,size*.48,size*.48,.1,m);
+ for(let i=0;i<5;i++){
+  const a=i*Math.PI*2/5;
+  ball(g,Math.cos(a)*size*.58,Math.sin(a)*size*.58,0,
+       size*.22,size*.22,.08,m);
+ }
+}
+
+star(bed,.7,.96,.15,.23,'#e9c2f1');
+star(bed,.98,.94,.72,.17,'#a9baff');
+
+// ПЛЮШЕВАЯ АКУЛА
+
+function shark(parent,x,y,z,s=.82){
+ const g=group(parent,x,y,z);
+ g.scale.setScalar(s);
+ const f=mat('#7186a5'),b=mat('#dfe3f0'),fin=mat('#627894');
+ const eye=mat('#191a2b');
+
+ ball(g,0,0,0,.72,.32,.3,f);
+ ball(g,.02,-.17,.018,.57,.17,.275,b);
+ ball(g,.53,.015,0,.32,.25,.29,f);
+ ball(g,.78,-.025,0,.22,.14,.17,f);
+ ball(g,.78,-.13,.018,.15,.065,.15,mat('#51475d'));
+ ball(g,.56,.105,.25,.045,.05,.025,eye);
+ ball(g,.56,.105,-.25,.045,.05,.025,eye);
+
+ const finMesh=new THREE.Mesh(
+  new THREE.ConeGeometry(.2,.4,4),fin
+ );
+ finMesh.position.set(-.12,.36,0);
+ g.add(finMesh);
+
+ const tail=new THREE.Mesh(
+  new THREE.ConeGeometry(.19,.48,4),fin
+ );
+ tail.position.set(-.82,.2,0);
+ tail.rotation.z=-Math.PI/2;
+ g.add(tail);
+}
+
+shark(bed,-.62,1.05,.38);
+
+// ПЛЮШЕВЫЕ ИГРУШКИ
+
+function teddy(parent,x,y,z,color='#b9a3d7',s=.8){
+ const g=group(parent,x,y,z);
+ g.scale.setScalar(s);
+ const f=mat(color),m=mat('#e6d4dc'),e=mat('#332c47');
+
+ ball(g,0,0,0,.22,.25,.18,f);
+ ball(g,0,.27,0,.18,.18,.16,f);
+ ball(g,-.135,.4,0,.075,.08,.07,f);
+ ball(g,.135,.4,0,.075,.08,.07,f);
+ ball(g,0,.22,.14,.095,.07,.045,m);
+ ball(g,0,.245,.18,.024,.022,.015,e);
+ ball(g,-.06,.3,.14,.018,.02,.012,e);
+ ball(g,.06,.3,.14,.018,.02,.012,e);
+ ball(g,-.22,-.03,.02,.09,.14,.09,f);
+ ball(g,.22,-.03,.02,.09,.14,.09,f);
+ ball(g,-.12,-.21,.03,.11,.075,.1,f);
+ ball(g,.12,-.21,.03,.11,.075,.1,f);
+ ball(g,-.06,.12,.17,.055,.04,.022,M.pink);
+ ball(g,.06,.12,.17,.055,.04,.022,M.pink);
+}
+
+teddy(bed,-.95,.97,-.25);
+teddy(bed,.86,.98,.45,'#d9adb9',.76);
+
+function frog(parent,x,y,z){
+ const g=group(parent,x,y,z);
+ const f=mat('#789f8b'),e=mat('#29283c');
+
+ ball(g,0,0,0,.24,.17,.19,f);
+ ball(g,0,.19,0,.22,.17,.18,f);
+ ball(g,-.13,.32,.01,.08,.1,.08,f);
+ ball(g,.13,.32,.01,.08,.1,.08,f);
+ ball(g,-.13,.34,.11,.018,.025,.014,e);
+ ball(g,.13,.34,.11,.018,.025,.014,e);
+ ball(g,0,.23,.19,.025,.025,.02,M.violet);
+ ball(g,-.06,.23,.17,.045,.035,.025,M.pink);
+ ball(g,.06,.23,.17,.045,.035,.025,M.pink);
+}
+
+frog(bed,.35,.99,.93);
+
+// ТУМБОЧКА В УГЛУ
+
+const nightstand=group(room,-4.48,0,-3.02);
+box(nightstand,0,.65,0,.68,1.3,.68,M.woodLight);
+box(nightstand,0,.82,.351,.56,.3,.035,M.white);
+box(nightstand,0,.38,.351,.56,.3,.035,M.white);
+cyl(nightstand,0,.82,.393,.035,.035,.035,M.metal);
+cyl(nightstand,0,.38,.393,.035,.035,.035,M.metal);
+box(nightstand,0,1.32,0,.76,.08,.76,M.wood);
+cyl(nightstand,0,1.43,0,.07,.07,.16,M.metal);
+
+const shade=new THREE.Mesh(
+ new THREE.CylinderGeometry(.17,.25,.25,20),M.glow
+);
+shade.position.set(0,1.63,0);
+nightstand.add(shade);
+
+const lampLight=new THREE.PointLight('#8c63ff',5,4);
+lampLight.position.set(-4.48,1.8,-3.02);
+scene.add(lampLight);
+
+// ИГРОВОЙ СТОЛ
+
+const desk=group(room,2.45,0,-3.05);
+box(desk,0,1.15,0,3.45,.16,1.25,M.woodLight);
+
+for(const x of [-1.45,1.45]){
+ box(desk,x,.56,-.4,.13,1.12,.13,M.white);
+ box(desk,x,.56,.4,.13,1.12,.13,M.white);
+}
+
+box(desk,0,1.05,.53,3.1,.035,.08,M.violet);
+box(desk,0,1.98,-.3,1.72,1.05,.11,M.black);
+
+const screenMat=new THREE.MeshBasicMaterial({color:'#718cff'});
+box(desk,0,1.98,-.235,1.6,.92,.025,screenMat);
+box(desk,-.36,2.15,-.216,.47,.43,.008,mat('#39356f'));
+box(desk,.2,1.9,-.215,.58,.55,.008,mat('#35365f'));
+box(desk,.55,2.18,-.212,.26,.2,.008,mat('#536eaf'));
+box(desk,-.12,1.76,-.207,.8,.012,.008,M.violet);
+box(desk,0,1.4,-.3,.1,.3,.1,M.metal);
+box(desk,0,1.25,-.3,.48,.06,.28,M.metal);
+
+const monitorGlow=new THREE.PointLight('#6f83ff',22,7,2);
+monitorGlow.position.set(2.45,2,-2.45);
+scene.add(monitorGlow);
+
+const monitorPurpleGlow=new THREE.PointLight('#9b62ff',10,5,2);
+monitorPurpleGlow.position.set(2.1,1.7,-2.1);
+scene.add(monitorPurpleGlow);
+
+box(desk,0,1.27,.27,1.12,.055,.36,M.black);
+
+for(let r=0;r<3;r++){
+ for(let c=0;c<12;c++){
+  box(desk,-.49+c*.09,1.305,.15+r*.09,.055,.012,.045,
+      [M.violet,M.blue,M.pink][(c+r)%3],false);
+ }
+}
+
+box(desk,.95,1.245,.28,.58,.025,.48,M.deep);
+ball(desk,.95,1.3,.25,.1,.055,.15,M.white);
+box(desk,-1.2,1.38,-.12,.08,.35,.08,M.metal);
+box(desk,-1.2,1.57,-.12,.35,.045,.045,M.metal);
+ball(desk,-1.37,1.7,-.12,.09,.15,.09,M.black);
+box(desk,1.28,1.42,-.08,.055,.3,.055,M.metal);
+box(desk,1.28,1.57,-.08,.22,.04,.04,M.metal);
+
+// КРЕСЛО, ПОВЁРНУТОЕ К МОНИТОРУ
+
+const chair=group(room,2.45,0,-1.45);
+chair.rotation.y=Math.PI;
+
+cyl(chair,0,.62,0,.1,.1,.9,M.black);
+box(chair,0,.87,0,.72,.17,.68,M.black);
+box(chair,0,1.27,-.28,.72,.85,.16,M.deep);
+box(chair,0,1.3,-.19,.55,.65,.035,M.fabric);
+box(chair,-.43,.95,0,.14,.4,.57,M.black);
+box(chair,.43,.95,0,.14,.4,.57,M.black);
+cyl(chair,0,.16,0,.08,.08,.25,M.black);
+
+for(let i=0;i<5;i++){
+ const a=i*Math.PI*2/5;
+ const leg=box(chair,Math.cos(a)*.34,.08,Math.sin(a)*.34,
+               .45,.07,.09,M.black);
+ leg.rotation.y=-a;
+ cyl(chair,Math.cos(a)*.51,.04,Math.sin(a)*.51,
+     .06,.06,.07,M.metal);
+}
+
+// ШКАФ НА ПЕРВОМ ЭТАЖЕ
+
+const wardrobe=group(room,-4.15,0,1.65);
+box(wardrobe,0,1.55,0,1.3,3.1,1.35,M.white);
+box(wardrobe,-.32,1.55,.69,.61,2.95,.035,M.woodLight);
+box(wardrobe,.32,1.55,.69,.61,2.95,.035,M.woodLight);
+box(wardrobe,0,1.55,.715,.025,2.95,.025,M.grey);
+
+for(const x of [-.12,.12]){
+ cyl(wardrobe,x,1.55,.76,.035,.035,.08,M.metal,12);
+}
+
+// РАСТЕНИЯ
+
+function plant(parent,x,y,z,s=1){
+ const g=group(parent,x,y,z);
+ g.scale.setScalar(s);
+ cyl(g,0,.12,0,.12,.15,.24,M.woodLight);
+ for(let i=0;i<7;i++){
+  const a=i*Math.PI*2/7;
+  const leaf=ball(g,Math.cos(a)*.15,.35+(i%3)*.06,
+                  Math.sin(a)*.12,.08,.22,.06,M.leaf);
+  leaf.rotation.z=-Math.cos(a)*.5;
+  leaf.rotation.x=Math.sin(a)*.4;
+ }
+}
+
+plant(room,-4.5,.15,-.8,.85);
+plant(room,4.05,.15,1.5,1.2);
+
+// ПОСТЕРЫ
+
+function poster(x,y,w,h,i){
+ const p=group(room,x,y,-3.89);
+ box(p,0,0,0,w,h,.035,M.wood);
+ box(p,0,0,.025,w-.035,h-.035,.012,
+     [M.white,M.pink,M.grey,M.blue,M.fabric2][i%5]);
+ ball(p,0,.07,.04,w*.18,h*.18,.015,
+      [M.violet,M.pink,M.blue][i%3]);
+ box(p,0,-h*.22,.045,w*.48,.014,.012,M.deep,false);
+}
+
+for(let i=0;i<11;i++)poster(-4.1+i*.78,3,.4,.52,i);
+
+// ОКНО С ЗИМНИМ ВИДОМ
+
+const win=group(room,3.75,2.85,-3.82);
+box(win,0,0,0,1.55,1.65,.1,M.wood);
+box(win,0,0,.065,1.4,1.5,.035,mat('#11172d'));
+box(win,0,0,.09,1.3,1.4,.025,mat('#313e75'));
+box(win,0,0,.11,1.3,.035,.02,M.white);
+box(win,0,0,.11,.035,1.4,.02,M.white);
+
+for(let i=0;i<30;i++){
+ ball(win,(Math.random()-.5)*1.22,(Math.random()-.5)*1.3,
+      .14,.012,.012,.012,M.glow);
+}
+
+box(win,-.86,0,.12,.2,1.85,.13,M.fabric);
+box(win,.86,0,.12,.2,1.85,.13,M.fabric);
+
+// ПОЛКА С КНИГАМИ
+
+box(room,.4,3.65,-3.78,2.9,.12,.35,M.woodLight);
+box(room,.4,3.72,-3.78,2.85,.035,.32,M.white);
+
+const bookColors=['#7561aa','#627aa9','#a16d9e','#c6a3d2','#7f8bb7'];
+
+for(let i=0;i<8;i++){
+ box(room,-.75+i*.22,3.88,-3.79,.17,.29+(i%3)*.06,.23,
+     mat(bookColors[i%5]));
+}
+
+// ==================================================
+// ВТОРОЙ ЭТАЖ — ГАРДЕРОБНАЯ, БЕЗ КРОВАТИ
+// ==================================================
+
+const upper=group(room);
+const deckY=2.78;
+
+// Платформа
+box(upper,-1.72,deckY,-1.68,5.55,.20,3.95,M.woodLight);
+box(upper,-1.72,deckY+.11,-1.68,5.42,.035,3.82,M.white);
+
+// Неоновая окантовка платформы
+strip(upper,-1.72,2.64,.29,5.48,.045,.045,'#8b56ff');
+strip(upper,1.02,2.64,-1.68,.045,.045,3.82,'#536dff');
+strip(upper,-4.46,2.64,-1.68,.045,.045,3.82,'#8b56ff');
+
+// ПЕРИЛА
+
+box(upper,-1.72,3.30,.24,5.55,.07,.09,M.white);
+box(upper,1.02,3.30,-1.68,.09,.07,3.82,M.white);
+
+for(let i=0;i<=18;i++){
+ const x=-4.42+i*.30;
+ box(upper,x,3.08,.24,.045,.48,.045,M.woodLight);
+}
+
+for(let i=0;i<=12;i++){
+ const z=-3.48+i*.30;
+ box(upper,1.02,3.08,z,.045,.48,.045,M.woodLight);
+}
+
+// ГАРДЕРОБНЫЙ ШКАФ
+
+const closet=group(upper,-3.45,0,-3.30);
+box(closet,0,3.78,0,1.62,1.72,.62,M.white);
+box(closet,0,3.78,.325,1.54,1.62,.035,M.woodLight);
+box(closet,-.38,3.78,.35,.035,1.58,.035,M.grey);
+box(closet,.38,3.78,.35,.035,1.58,.035,M.grey);
+
+for(const x of [-.56,.56]){
+ cyl(closet,x,3.78,.39,.025,.025,.10,M.metal,12);
+}
+
+box(closet,0,4.63,0,1.62,.12,.65,M.woodLight);
+strip(closet,0,4.53,.37,1.42,.025,.025,'#8b56ff');
+
+// ОТКРЫТАЯ СТОЙКА С ОДЕЖДОЙ
+
+const rack=group(upper,-1.45,0,-3.12);
+box(rack,0,4.52,0,2.05,.10,.52,M.woodLight);
+box(rack,0,3.04,0,2.05,.10,.52,M.woodLight);
+
+for(const x of [-.96,.96]){
+ box(rack,x,3.78,0,.07,1.50,.07,M.metal);
+ cyl(rack,x,4.42,0,.045,.045,.07,M.metal,12);
+}
+
+cyl(rack,0,4.35,0,.035,.035,1.92,M.metal,16);
+
+const clothes=[
+ {x:-.78,c:'#9d8be8',w:.27},
+ {x:-.47,c:'#e5dff3',w:.30},
+ {x:-.13,c:'#566baf',w:.31},
+ {x:.22,c:'#c38bc9',w:.28},
+ {x:.54,c:'#b9bfdc',w:.30},
+ {x:.82,c:'#514b78',w:.24}
+];
+
+for(const item of clothes){
+ const cg=group(rack,item.x,0,.015);
+ const cloth=mat(item.c,.75,'#7040ff',.08);
+
+ // Вешалка
+ cyl(cg,0,4.29,0,.012,.012,.10,M.metal,8);
+ const hangerL=box(cg,-.07,4.24,0,.16,.018,.018,M.metal,false);
+ hangerL.rotation.z=-.24;
+ const hangerR=box(cg,.07,4.24,0,.16,.018,.018,M.metal,false);
+ hangerR.rotation.z=.24;
+
+ // Верх одежды и две штанины
+ box(cg,0,3.91,0,item.w,.42,.075,cloth);
+ box(cg,-item.w*.22,3.60,0,item.w*.38,.28,.08,cloth);
+ box(cg,item.w*.22,3.60,0,item.w*.38,.28,.08,cloth);
+
+ box(cg,0,4.11,.043,item.w*.62,.025,.012,
+     mat('#e8e2ff',.7));
+}
+
+// КОМОД ДЛЯ АКСЕССУАРОВ
+
+const dresser=group(upper,.35,0,-3.05);
+box(dresser,0,3.25,0,1.25,.68,.66,M.woodLight);
+box(dresser,0,3.60,.34,1.19,.08,.68,M.white);
+
+for(const y of [3.14,3.36]){
+ box(dresser,0,y,.34,1.13,.18,.035,M.white);
+ cyl(dresser,0,y,.39,.025,.025,.035,M.metal,10);
+}
+
+// Флаконы и аксессуары
+box(dresser,-.32,3.72,.02,.13,.17,.12,M.pink);
+box(dresser,-.32,3.81,.02,.07,.04,.07,M.glow);
+box(dresser,.02,3.70,.02,.16,.13,.12,M.blue);
+cyl(dresser,.35,3.73,.02,.07,.07,.16,M.glow,16);
+
+// ЗЕРКАЛО В ПОЛНЫЙ РОСТ
+
+const mirror=group(upper,1.00,0,-2.25);
+box(mirror,0,3.80,0,.08,1.72,1.05,M.woodLight);
+box(mirror,-.048,3.80,0,.025,1.60,.92,
+    mat('#5d6c9d',.22,'#3b4caa',.22));
+strip(mirror,-.07,3.80,0,.025,1.67,.98,'#8b56ff');
+
+// Пуфик перед зеркалом
+ball(upper,.42,3.00,-1.65,.35,.22,.34,M.pink);
+ball(upper,.42,3.17,-1.65,.29,.10,.28,M.fabric2);
+
+// ПОЛКИ ДЛЯ СУМОК И КОРОБОК
+
+const shelves=group(upper,-4.10,0,-1.35);
+
+for(const y of [3.25,3.72,4.19]){
+ box(shelves,0,y,0,.48,.07,1.65,M.woodLight);
+ strip(shelves,.24,y-.08,0,.025,.025,1.52,
+       y===3.72?'#536dff':'#8b56ff');
+}
+
+const bagColors=['#9a83d7','#6e7db7','#c995c9'];
+
+for(let i=0;i<3;i++){
+ box(shelves,-.08,3.48,-.48+i*.48,.29,.32,.35,
+     mat(bagColors[i]));
+ box(shelves,-.08,3.68,-.48+i*.48,.15,.035,.16,M.metal);
+}
+
+// КОВРИК ГАРДЕРОБНОЙ
+box(upper,-1.45,2.925,-1.35,2.25,.025,1.05,
+    mat('#bcb0e4',.95,'#6944b6',.10),false);
+
+// Потолочная линия света гардеробной
+strip(upper,-1.7,4.70,-3.73,4.65,.025,.025,'#8b56ff');
+
+const loftLight=new THREE.PointLight('#9b70ff',7,6);
+loftLight.position.set(-1.6,4.35,-2.0);
+scene.add(loftLight);
+
+const closetBlueLight=new THREE.PointLight('#526eff',5,5);
+closetBlueLight.position.set(-3.9,4.1,-1.2);
+scene.add(closetBlueLight);
+
+// ЛЕСТНИЦА С ПОДСВЕТКОЙ
+
+const stairs=group(room,-.20,0,0);
+const stairCount=11;
+
+for(let i=0;i<stairCount;i++){
+ const y=.20+i*.225;
+ const z=2.55-i*.235;
+
+ box(stairs,0,y,z,.82,.16,.31,M.woodLight);
+
+ strip(stairs,0,y+.075,z-.13,.76,.025,.025,
+       i%2===0?'#8b56ff':'#536dff');
+}
+
+// Опоры и поручни
+for(const side of [-.48,.48]){
+ for(let i=0;i<=6;i++){
+  const t=i/6;
+  const y=.43+t*2.05;
+  const z=2.55-t*2.55;
+  box(stairs,side,y,z,.055,.10,.055,M.white);
+ }
+
+ const rail=box(stairs,side,1.50,1.28,.075,2.35,.075,M.woodLight);
+ rail.rotation.x=-Math.atan2(2.05,2.55);
+}
+
+// Площадка у выхода на второй этаж
+box(upper,-.20,2.83,.03,1.05,.12,.48,M.woodLight);
+
+// ПАНЕЛЬ УПРАВЛЕНИЯ
+
+const panel=document.querySelector('.panel');
+const toggle=document.querySelector('#toggle');
+
+toggle.addEventListener('click',()=>{
+ const collapsed=panel.classList.toggle('collapsed');
+ toggle.classList.toggle('open',!collapsed);
+ toggle.textContent=collapsed?'›':'‹';
+});
+
+function setCamera(position,target){
+ camera.position.copy(position);
+ controls.target.copy(target);
+ controls.update();
+}
+
+document.querySelectorAll('[data-view]').forEach(button=>{
+ button.addEventListener('click',()=>{
+  document.querySelectorAll('[data-view]').forEach(b=>
+   b.classList.remove('active')
+  );
+  button.classList.add('active');
+
+  const view=button.dataset.view;
+
+  if(view==='room'){
+   setCamera(initialCamera,initialTarget);
+  }
+
+  if(view==='closet'){
+   setCamera(
+    new THREE.Vector3(7.5,9.5,10),
+    new THREE.Vector3(-1.65,3.45,-1.7)
+   );
+  }
+
+  if(view==='front'){
+   setCamera(
+    new THREE.Vector3(0,7,16),
+    new THREE.Vector3(0,2,0)
+   );
+  }
+ });
+});
+
+// Скрытие стен
+let wallsHidden=false;
+
+document.querySelector('#wallsBtn').addEventListener('click',()=>{
+ wallsHidden=!wallsHidden;
+ walls.visible=!wallsHidden;
+ document.querySelector('#wallsBtn').innerHTML=
+  `<span class="dot"></span>${wallsHidden?'Показать стены':'Скрыть стены'}`;
+});
+
+// Неон
+let lightsOn=true;
+
+document.querySelector('#neonBtn').addEventListener('click',()=>{
+ lightsOn=!lightsOn;
+ neonGroup.visible=lightsOn;
+
+ purpleLight.intensity=lightsOn?30:0;
+ blueLight.intensity=lightsOn?15:0;
+ pinkLight.intensity=lightsOn?8:0;
+ lampLight.intensity=lightsOn?5:0;
+ loftLight.intensity=lightsOn?7:0;
+ closetBlueLight.intensity=lightsOn?5:0;
+
+ monitorGlow.intensity=lightsOn?22:12;
+ monitorPurpleGlow.intensity=lightsOn?10:4;
+
+ document.querySelector('#neonBtn').innerHTML=
+  `<span class="dot"></span>Неон: ${lightsOn?'ON':'OFF'}`;
+});
+
+// Ночной режим
+let night=true;
+
+document.querySelector('#nightBtn').addEventListener('click',()=>{
+ night=!night;
+ scene.background.set(night?'#090a16':'#17172d');
+ scene.fog.color.set(night?'#090a16':'#17172d');
+ mainLight.intensity=night?.4:.85;
+ renderer.toneMappingExposure=night?1:1.1;
+});
+
+// Сброс камеры
+document.querySelector('#resetBtn').addEventListener('click',()=>{
+ setCamera(initialCamera,initialTarget);
+});
+
+// Размер экрана
+window.addEventListener('resize',()=>{
+ camera.aspect=innerWidth/innerHeight;
+ camera.updateProjectionMatrix();
+ renderer.setSize(innerWidth,innerHeight);
+});
+
+// АНИМАЦИЯ
+function animate(){
+ requestAnimationFrame(animate);
+
+ const t=performance.now()*.001;
+
+ if(lightsOn){
+  purpleLight.intensity=30+Math.sin(t*1.3)*2;
+  blueLight.intensity=15+Math.sin(t*1.1+1)*1.5;
+ }
+
+ controls.update();
+ renderer.render(scene,camera);
+}
+
+animate();
+</script>
+</body>
+</html>
